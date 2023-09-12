@@ -1,3 +1,6 @@
+import time
+from dataclasses import dataclass
+
 import pyaudio
 import argparse
 import asyncio
@@ -18,7 +21,7 @@ all_transcripts = []
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 16000
-CHUNK = 8000
+CHUNK = 16000#8000
 
 audio_queue = asyncio.Queue()
 
@@ -64,7 +67,8 @@ def mic_callback(input_data, frame_count, time_info, status_flag):
 
 
 async def run(key, method, format, **kwargs):
-    deepgram_url = f'{kwargs["host"]}/v1/listen?punctuate=true'
+    print(kwargs)
+    deepgram_url = f'{kwargs["host"]}/v1/listen?punctuate=true&language={ApiData.language}&endpointing=500&interim_result=true'
 
     if kwargs["model"]:
         deepgram_url += f"&model={kwargs['model']}"
@@ -73,11 +77,12 @@ async def run(key, method, format, **kwargs):
         deepgram_url += f"&tier={kwargs['tier']}"
 
     if method == "mic":
-        deepgram_url += "&encoding=linear16&sample_rate=16000"
+        deepgram_url += f"&encoding=linear16&sample_rate={RATE}"
 
     elif method == "wav":
         data = kwargs["data"]
         deepgram_url += f'&channels={kwargs["channels"]}&sample_rate={kwargs["sample_rate"]}&encoding=linear16'
+
 
     # Connect to the real-time streaming endpoint, attaching our credentials.
     async with websockets.connect(
@@ -188,7 +193,8 @@ async def run(key, method, format, **kwargs):
                                 first_transcript = False
                             if format == "vtt" or format == "srt":
                                 transcript = subtitle_formatter(res, format)
-                            print(transcript)
+
+                            print(f"{datetime.now()}: {transcript}")
                             all_transcripts.append(transcript)
 
                         # if using the microphone, close stream if user says "goodbye"
@@ -318,79 +324,17 @@ def validate_dg_host(dg_host):
             f'{dg_host} is invalid. Please provide a WebSocket URL in the format "{{wss|ws}}://hostname[:port]".'
     )
 
-def parse_args():
-    """Parses the command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Submits data to the real-time streaming endpoint."
-    )
-    parser.add_argument(
-        "-k", "--key", required=True, help="YOUR_DEEPGRAM_API_KEY (authorization)"
-    )
-    parser.add_argument(
-        "-i",
-        "--input",
-        help='Input to stream to Deepgram. Can be "mic" to stream from your microphone (requires pyaudio), the path to a WAV file, or the URL to a direct audio stream. Defaults to the included file preamble.wav',
-        nargs="?",
-        const=1,
-        default="preamble.wav",
-        type=validate_input,
-    )
-    parser.add_argument(
-        "-m",
-        "--model",
-        help='Which model to make your request against. Defaults to none specified. See https://developers.deepgram.com/docs/models-overview for all model options.',
-        nargs="?",
-        const="",
-        default="general",
-    )
-    parser.add_argument(
-        "-t",
-        "--tier",
-        help='Which model tier to make your request against. Defaults to none specified. See https://developers.deepgram.com/docs/tier for all tier options.',
-        nargs="?",
-        const="",
-        default="",
-    )
-    parser.add_argument(
-        "-ts",
-        "--timestamps",
-        help='Whether to include timestamps in the printed streaming transcript. Defaults to False.',
-        nargs="?",
-        const=1,
-        default=False,
-    )
-    parser.add_argument(
-        "-f",
-        "--format",
-        help='Format for output. Can be "text" to return plain text, "VTT", or "SRT". If set to VTT or SRT, the audio file and subtitle file will be saved to the data/ directory. Defaults to "text".',
-        nargs="?",
-        const=1,
-        default="text",
-        type=validate_format,
-    )
-    #Parse the host
-    parser.add_argument(
-        "--host",
-        help='Point the test suite at a specific Deepgram URL (useful for on-prem deployments). Takes "{{wss|ws}}://hostname[:port]" as its value. Defaults to "wss://api.deepgram.com".',
-        nargs="?",
-        const=1,
-        default="wss://api.deepgram.com",
-        type=validate_dg_host,
-    )
-    return parser.parse_args()
-
 
 def main():
     """Entrypoint for the example."""
     # Parse the command-line arguments.
-    args = parse_args()
-    input = args.input
-    format = args.format.lower()
-    host = args.host
+    input = ApiData.input
+    format = ApiData.format.lower()
+    host = ApiData.host
 
     try:
         if input.lower().startswith("mic"):
-            asyncio.run(run(args.key, "mic", format, model=args.model, tier=args.tier, host=host, timestamps=args.timestamps))
+            asyncio.run(run(ApiData.key, "mic", format, model=ApiData.model, tier=ApiData.tier, host=host, timestamps=ApiData.timestamps))
 
         elif input.lower().endswith("wav"):
             if os.path.exists(input):
@@ -408,27 +352,27 @@ def main():
                     data = fh.readframes(num_samples)
                     asyncio.run(
                         run(
-                            args.key,
+                            ApiData.key,
                             "wav",
                             format,
-                            model=args.model,
-                            tier=args.tier,
+                            model=ApiData.model,
+                            tier=ApiData.tier,
                             data=data,
                             channels=channels,
                             sample_width=sample_width,
                             sample_rate=sample_rate,
-                            filepath=args.input,
+                            filepath=ApiData.input,
                             host=host,
-                            timestamps=args.timestamps,
+                            timestamps=ApiData.timestamps,
                         )
                     )
             else:
                 raise argparse.ArgumentTypeError(
-                    f"🔴 {args.input} is not a valid WAV file."
+                    f"🔴 {ApiData.input} is not a valid WAV file."
                 )
 
         elif input.lower().startswith("http"):
-            asyncio.run(run(args.key, "url", format, model=args.model, tier=args.tier, url=input, host=host, timestamps=args.timestamps))
+            asyncio.run(run(ApiData.key, "url", format, model=ApiData.model, tier=ApiData.tier, url=input, host=host, timestamps=ApiData.timestamps))
 
         else:
             raise argparse.ArgumentTypeError(
@@ -469,6 +413,16 @@ def main():
         print(f"🔴 ERROR: Something went wrong! {e}")
         return
 
+@dataclass
+class ApiData:
+    key='71801fb6cef55d6aa66b827d979fde4db9ff89db'
+    input='mic'
+    model = 'enhanced'
+    language="en"
+    tier = ''
+    timestamps = False
+    format = 'text'
+    host = 'wss://api.deepgram.com'
 
 if __name__ == "__main__":
     sys.exit(main() or 0)
