@@ -12,7 +12,7 @@ import wave
 import websockets
 
 from datetime import datetime
-
+audio_queue = asyncio.Queue()
 startTime = datetime.now()
 
 all_mic_data = []
@@ -23,7 +23,7 @@ CHANNELS = 1
 RATE = 16000
 CHUNK = 16000#8000
 
-audio_queue = asyncio.Queue()
+
 
 # Mimic sending a real-time stream by sending this many seconds of audio at a time.
 # Used for file "streaming" only.
@@ -67,8 +67,7 @@ def mic_callback(input_data, frame_count, time_info, status_flag):
 
 
 async def run(key, method, format, **kwargs):
-    print(kwargs)
-    deepgram_url = f'{kwargs["host"]}/v1/listen?punctuate=true&language={ApiData.language}&endpointing=500&interim_result=true'
+    deepgram_url = f'{kwargs["host"]}/v1/listen?punctuate=true&language={ApiData.language}&endpointing=100&interim_result=true'
 
     if kwargs["model"]:
         deepgram_url += f"&model={kwargs['model']}"
@@ -96,6 +95,7 @@ async def run(key, method, format, **kwargs):
         print("🟢 (1/5) Successfully opened Deepgram streaming connection")
 
         async def sender(ws):
+            global audio_queue
             print(
                 f'🟢 (2/5) Ready to stream {method if (method == "mic" or method == "url") else kwargs["filepath"]} audio to Deepgram{". Speak into your microphone to transcribe." if method == "mic" else ""}'
             )
@@ -111,10 +111,6 @@ async def run(key, method, format, **kwargs):
                     print(
                         "🟢 (5/5) Successfully closed Deepgram connection, waiting for final transcripts if necessary"
                     )
-
-                except Exception as e:
-                    print(f"Error while sending: {str(e)}")
-                    raise
 
             elif method == "url":
                 # Listen for the connection to open and send streaming audio from the URL to Deepgram
@@ -196,6 +192,10 @@ async def run(key, method, format, **kwargs):
 
                             print(f"{datetime.now()}: {transcript}")
                             all_transcripts.append(transcript)
+
+                            f = open("demofile2.txt", "w", encoding='utf-8')
+                            f.write(transcript)
+                            f.close()
 
                         # if using the microphone, close stream if user says "goodbye"
                         if method == "mic" and "goodbye" in transcript.lower():
@@ -409,20 +409,19 @@ def main():
     except websockets.exceptions.ConnectionClosedOK:
         return
 
-    except Exception as e:
-        print(f"🔴 ERROR: Something went wrong! {e}")
-        return
+
 
 @dataclass
 class ApiData:
-    key='71801fb6cef55d6aa66b827d979fde4db9ff89db'
+    key='557089d4de3e8902a5381be50efd9197f0e7263c'
     input='mic'
     model = 'enhanced'
-    language="en"
+    language="fr"
     tier = ''
     timestamps = False
     format = 'text'
     host = 'wss://api.deepgram.com'
 
 if __name__ == "__main__":
+
     sys.exit(main() or 0)
